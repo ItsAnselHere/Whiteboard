@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Super Whiteboard</title>
+
+<!-- FontAwesome Icons -->
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
+<style>
+    body {
+        margin: 0;
+        overflow: hidden;
+        font-family: Arial, sans-serif;
+        background: #ffffff;
+        transition: background 0.3s, color 0.3s;
+    }
+
+    body.dark {
+        background: #1e1e1e;
+        color: #ddd;
+    }
+
+    /* Toolbar */
+    #toolbar {
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%;
+        height: 60px;
+        background: #333;
+        color: white;
+        display: flex;
+        align-items: center;
+        padding: 5px 10px;
+        gap: 15px;
+        z-index: 10;
+        overflow-x: auto;
+    }
+    body.dark #toolbar {
+        background: #111;
+    }
+
+    .tool-btn {
+        background: #444;
+        border: none;
+        padding: 8px 12px;
+        color: white;
+        font-size: 18px;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: 0.2s;
+    }
+    .tool-btn.active {
+        background: #007bff;
+    }
+    .tool-btn:hover {
+        background: #555;
+    }
+
+    #board {
+        position: absolute;
+        top: 60px;
+        left: 0;
+        border: none;
+        display: block;
+    }
+
+    /* Color picker + size slider */
+    #colorPicker, #sizePicker {
+        cursor: pointer;
+        height: 30px;
+    }
+
+    #sizePicker {
+        width: 100px;
+    }
+
+    /* Text input box */
+    #textInput {
+        position: absolute;
+        display: none;
+        border: 2px solid #007bff;
+        font-size: 20px;
+        padding: 5px;
+        z-index: 100;
+        background: white;
+    }
+</style>
+</head>
+<body>
+
+<!-- TOOLBAR -->
+<div id="toolbar">
+    <!-- Brush -->
+    <button class="tool-btn active" id="brushBtn"><i class="fa-solid fa-pencil"></i></button>
+    <!-- Highlighter -->
+    <button class="tool-btn" id="highlighterBtn"><i class="fa-solid fa-highlighter"></i></button>
+    <!-- Eraser -->
+    <button class="tool-btn" id="eraserBtn"><i class="fa-solid fa-eraser"></i></button>
+
+    <!-- Shapes -->
+    <button class="tool-btn" id="lineBtn"><i class="fa-solid fa-slash"></i></button>
+    <button class="tool-btn" id="rectBtn"><i class="fa-regular fa-square"></i></button>
+    <button class="tool-btn" id="circleBtn"><i class="fa-regular fa-circle"></i></button>
+    <button class="tool-btn" id="arrowBtn"><i class="fa-solid fa-arrow-right"></i></button>
+
+    <!-- Text -->
+    <button class="tool-btn" id="textBtn"><i class="fa-solid fa-font"></i></button>
+
+    <!-- Undo / Redo -->
+    <button class="tool-btn" id="undoBtn"><i class="fa-solid fa-rotate-left"></i></button>
+    <button class="tool-btn" id="redoBtn"><i class="fa-solid fa-rotate-right"></i></button>
+
+    <!-- Save -->
+    <button class="tool-btn" id="saveBtn"><i class="fa-solid fa-download"></i></button>
+
+    <!-- Color -->
+    <input type="color" id="colorPicker" value="#000000">
+
+    <!-- Size -->
+    <input type="range" id="sizePicker" min="1" max="50" value="5">
+
+    <!-- Mode toggle -->
+    <button class="tool-btn" id="darkModeBtn"><i class="fa-solid fa-moon"></i></button>
+
+    <!-- Clear -->
+    <button class="tool-btn" id="clearBtn"><i class="fa-solid fa-trash"></i></button>
+</div>
+
+<canvas id="board"></canvas>
+<input type="text" id="textInput" placeholder="Type text...">
+
+<script>
+/* -----------------------------------------------------
+   CANVAS SETUP
+----------------------------------------------------- */
+const canvas = document.getElementById("board");
+const ctx = canvas.getContext("2d");
+
+function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight - 60;
+}
+resizeCanvas();
+window.addEventListener("resize", resizeCanvas);
+
+/* -----------------------------------------------------
+   STATE
+----------------------------------------------------- */
+let tool = "brush"; 
+let drawing = false;
+let startX = 0, startY = 0;
+let color = document.getElementById("colorPicker").value;
+let size = document.getElementById("sizePicker").value;
+let undoStack = [];
+let redoStack = [];
+
+/* -----------------------------------------------------
+   SAVE STATE FOR UNDO
+----------------------------------------------------- */
+function saveState() {
+    undoStack.push(canvas.toDataURL());
+    redoStack = []; // clear redo
+}
+
+/* -----------------------------------------------------
+   LOAD IMAGE FROM STATE
+----------------------------------------------------- */
+function loadState(dataURL) {
+    let img = new Image();
+    img.src = dataURL;
+    img.onload = () => {
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        ctx.drawImage(img,0,0);
+    };
+}
+
+/* -----------------------------------------------------
+   TOOLBAR FUNCTIONS
+----------------------------------------------------- */
+function setTool(t) {
+    tool = t;
+    document.querySelectorAll(".tool-btn").forEach(b => b.classList.remove("active"));
+    document.getElementById(t+"Btn").classList.add("active");
+}
+function getPos(e) {
+    if (e.touches) e = e.touches[0];
+    return { x: e.clientX, y: e.clientY - 60 };
+}
+function drawBrush(x, y) {
+    ctx.lineTo(x, y);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = size;
+    ctx.lineCap = "round";
+    ctx.stroke();
+}
+
+function drawHighlighter(x, y) {
+    ctx.lineTo(x, y);
+    ctx.strokeStyle = color + "55"; // transparency
+    ctx.lineWidth = size * 2;
+    ctx.lineCap = "round";
+    ctx.stroke();
+}
+
+function drawEraser(x, y) {
+    ctx.lineTo(x, y);
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = size * 3;
+    ctx.lineCap = "round";
+    ctx.stroke();
+}
+
+/* -----------------------------------------------------
+   SHAPES
+----------------------------------------------------- */
+function drawShapePreview(x, y) {
+    ctx.putImageData(previewData, 0, 0);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = size;
+
+    if (tool === "line") {
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+    }
+    else if (tool === "rect") {
+        ctx.strokeRect(startX, startY, x - startX, y - startY);
+    }
+    else if (tool === "circle") {
+        let r = Math.hypot(x - startX, y - startY);
+        ctx.beginPath();
+        ctx.arc(startX, startY, r, 0, Math.PI * 2);
+        ctx.stroke();
+    }
+    else if (tool === "arrow") {
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(x, y);
+        ctx.stroke();
+
+        const angle = Math.atan2(y - startY, x - startX);
+        const head = 10 + size;
+        ctx.lineTo(x - head * Math.cos(angle - Math.PI / 6),
+                   y - head * Math.sin(angle - Math.PI / 6));
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - head * Math.cos(angle + Math.PI / 6),
+                   y - head * Math.sin(angle + Math.PI / 6));
+        ctx.stroke();
+    }
+}
+
+/* -----------------------------------------------------
+   TEXT TOOL
+----------------------------------------------------- */
+const textInput = document.getElementById("textInput");
+textInput.addEventListener("blur", () => {
+    ctx.font = "20px Arial";
+    ctx.fillStyle = color;
+    ctx.fillText(textInput.value, textInput.dataset.x, textInput.dataset.y);
+    textInput.style.display = "none";
+    saveState();
+});
+
+/* -----------------------------------------------------
+   EVENTS
+----------------------------------------------------- */
+let previewData;
+
+canvas.addEventListener("mousedown", e => {
+    saveState();
+    const pos = getPos(e);
+    drawing = true;
+    startX = pos.x;
+    startY = pos.y;
+    
+    if (tool === "brush" || tool === "eraser" || tool === "highlighter") {
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+    } else {
+        previewData = ctx.getImageData(0,0,canvas.width,canvas.height);
+    }
+});
+
+canvas.addEventListener("mousemove", e => {
+    if (!drawing) return;
+    const pos = getPos(e);
+
+    if (tool === "brush") drawBrush(pos.x, pos.y);
+    else if (tool === "highlighter") drawHighlighter(pos.x, pos.y);
+    else if (tool === "eraser") drawEraser(pos.x, pos.y);
+    else drawShapePreview(pos.x, pos.y);
+});
+
+canvas.addEventListener("mouseup", e => {
+    drawing = false;
+
+    if (tool === "text") {
+        const pos = getPos(e);
+        textInput.style.left = pos.x + "px";
+        textInput.style.top = (pos.y + 60) + "px";
+        textInput.style.display = "block";
+        textInput.dataset.x = pos.x;
+        textInput.dataset.y = pos.y;
+        textInput.value = "";
+        textInput.focus();
+    }
+});
+
+canvas.addEventListener("mouseleave", () => drawing = false);
+
+/* Touch Support */
+canvas.addEventListener("touchstart", e => {
+    e.preventDefault();
+    canvas.dispatchEvent(new MouseEvent("mousedown", e.touches[0]));
+});
+canvas.addEventListener("touchmove", e => {
+    e.preventDefault();
+    canvas.dispatchEvent(new MouseEvent("mousemove", e.touches[0]));
+});
+canvas.addEventListener("touchend", e => {
+    canvas.dispatchEvent(new MouseEvent("mouseup", e.changedTouches[0]));
+});
+
+/* -----------------------------------------------------
+   TOOLBAR LISTENERS
+----------------------------------------------------- */
+colorPicker.addEventListener("input", e => color = e.target.value);
+sizePicker.addEventListener("input", e => size = e.target.value);
+
+brushBtn.onclick = () => setTool("brush");
+highlighterBtn.onclick = () => setTool("highlighter");
+eraserBtn.onclick = () => setTool("eraser");
+lineBtn.onclick = () => setTool("line");
+rectBtn.onclick = () => setTool("rect");
+circleBtn.onclick = () => setTool("circle");
+arrowBtn.onclick = () => setTool("arrow");
+textBtn.onclick = () => setTool("text");
+
+/* Undo / Redo */
+undoBtn.onclick = () => {
+    if (undoStack.length === 0) return;
+    redoStack.push(canvas.toDataURL());
+    loadState(undoStack.pop());
+};
+redoBtn.onclick = () => {
+    if (redoStack.length === 0) return;
+    undoStack.push(canvas.toDataURL());
+    loadState(redoStack.pop());
+};
+
+/* Save */
+saveBtn.onclick = () => {
+    const link = document.createElement("a");
+    link.download = "whiteboard.png";
+    link.href = canvas.toDataURL();
+    link.click();
+};
+
+/* Clear */
+clearBtn.onclick = () => {
+    saveState();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+};
+
+/* Dark Mode */
+darkModeBtn.onclick = () => {
+    document.body.classList.toggle("dark");
+};
+</script>
+<link rel="shortcut icon" href="https://cdn-icons-png.flaticon.com/128/17536/17536369.png" type="image/x-icon">
+</body>
+</html>
